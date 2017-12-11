@@ -11,25 +11,25 @@
 //#define DEBUG true
 
 // WiFi Setup
-const char* ssid = "";
-const char* pass = "";
+const char* ssid = "wireless ssid goes here";
+const char* pass = "wireless password goes here";
 
 // OAUTH2 Client credentials
-String client_id = "";
-String client_secret = "";
+String client_id = "client id goes here";
+String client_secret = "client secret goes here;
 
 // Tokens
-String access_token = "";
-String refresh_token = "";
+String access_token = "access token goes here";
+String refresh_token = "refresh token goes here";
 
 // Email Setup
-String email_from = "";
-String email_to = "";
+String email_from = "email account to log in to goes here";
+String email_to = "email address to send an email to goes here";
 
 // Sheets Setup
 String sheet_id = "";
 String sheet_range = "Sheet1!A:B";
-
+String status_code;
 /* ====================================
  * Stop editing your configuration here
  */
@@ -40,7 +40,7 @@ String sheet_range = "Sheet1!A:B";
 const char* host = "www.googleapis.com";
 const char* sheetsHost = "sheets.googleapis.com";
 const int httpsPort = 443;
-const char* fingerprint = "A6 7A 38 10 2C 29 27 9F F5 91 52 92 49 F2 2A E7 C0 B4 20 A8";
+const char* fingerprint = "put a fingerprint here using the command in the comment above";
 
 // OAUTH2 Basics
 String access_type = "offline";
@@ -59,10 +59,11 @@ String sheet_scope = "https://www.googleapis.com/auth/spreadsheets";
 String scope = "email " + gmail_scope + " " + sheet_scope;
 
 static const int ERROR_STATE = -1;
-static const int INITIAL_STATE = 0;
-static const int AWAIT_CHALLANGE = 1;
-static const int EXCHANGING = 2;
-static const int INFO = 3;
+// Moved INFO step to be first, so we check if the access token is valid before we try to use it.
+static const int INFO = 0;
+static const int INITIAL_STATE = 1;
+static const int AWAIT_CHALLANGE = 2;
+static const int EXCHANGING = 3;
 static const int REFRESHING = 4;
 static const int DO_IT = 5;
 static const int END_STATE = 6;
@@ -114,7 +115,7 @@ bool sendEmail(String body) {
     String headers = "";
     headers += "From: " + email_from + "\n";
     headers += "To: " + email_to + "\n";
-    headers += "Subject: I love you!\n\n";
+    headers += "Subject: This is a test\n\n";
 
     String email = base64::encode(headers + body);
     email.replace("\n", "");
@@ -155,7 +156,7 @@ String parseResponse(String response) {
   }
 }
 
-
+// Removed requirement to only return if we get a 200 OK response to the GET request. The Google API responds with a 400 status code if the access token isn't valid. This way when the token is not valid, we can parse the response for the reason the request failed, instead of just getting nothing.
 String getRequest(const char* server, String request) {
 #ifdef DEBUG
   Serial.print("Function: "); Serial.println("getRequest()");
@@ -189,10 +190,8 @@ String getRequest(const char* server, String request) {
       if(client.find("HTTP/1.1 ")) {
         String status_code = client.readStringUntil('\r');
         Serial.print("Status code: "); Serial.println(status_code);
-        if(status_code != "200 OK") {
-          Serial.println("There was an error");
-          break;
-        }
+
+                
       }
       if(client.find("\r\n\r\n")) {
         Serial.println("Data:");
@@ -248,14 +247,21 @@ String postRequest(const char* server, String header, String data) {
           Serial.println("There was an error");
           break;
         }
-      }
+              
+      
       if(client.find("\r\n\r\n")) {
         Serial.println("Data:");
       }
       String line = client.readStringUntil('\r');
       Serial.println(line);
       result += line;
+      
+              
+        }
+
+       
     }
+
 
     Serial.println("closing connection");
     return result;
@@ -267,6 +273,7 @@ String postRequest(const char* server, String header, String data) {
 
 // create URL
 void authorize() {
+  
 #ifdef DEBUG
   Serial.print("Function: "); Serial.println("authorize()");
 #endif
@@ -317,7 +324,7 @@ bool exchange() {
     return false;
   }
 }
-
+// added JSON parser that checks if the parse is valid, extracts a new auth token from the response from the Google API, and sets it as the current auth token.
 bool refresh() {
 #ifdef DEBUG
   Serial.print("Function: "); Serial.println("refresh()");
@@ -340,14 +347,24 @@ bool refresh() {
     postHeader += ("\r\n\r\n");
 
     String result = postRequest(host, postHeader, postData);
-
+    StaticJsonBuffer<300> jsonBuffer;
+    JsonObject& root = jsonBuffer.parseObject(result);
+    if (!root.success()) {
+    Serial.println("parseObject() failed");
+}
+else{
+const char* access;
+       access = root["access_token"];
+      access_token =  String(access); 
+       Serial.println(access_token);
+}
     CURRENT_STATE = END_STATE;
     return true;
   } else {
     return false;
   }
 }
-
+// Added a JSON parser that checks if the parse is valid, extracts any error description, and begins a request for a new auth token via refresh(); if the current token is not valid.
 bool info() {
 #ifdef DEBUG
   Serial.print("Function: "); Serial.println("info()");
@@ -359,9 +376,25 @@ bool info() {
     reqHeader += ("Host: " + String(host) + ":" + String(httpsPort) + "\r\n");
     reqHeader += ("Connection: close\r\n");
     reqHeader += ("\r\n\r\n");
+    Serial.println(host);
+    Serial.println(reqHeader);
     String result = getRequest(host, reqHeader);
 
     // need to check for valid token here
+    StaticJsonBuffer<200> jsonBuffer;
+      JsonObject& root = jsonBuffer.parseObject(result);
+       if (!root.success()) {
+    Serial.println("parseObject() failed");
+}
+else{
+const char* validity;
+String validitystr;
+       validity = root["error_description"];
+       validitystr =  String(validity); 
+       if (validitystr == "Invalid Value"){
+        Serial.println("Invalid token, refreshing");
+        refresh();}
+}
 
     CURRENT_STATE = DO_IT;
   } else {
@@ -458,15 +491,16 @@ void loop() {
       refresh();
       break;
     case DO_IT:
-      //sendEmail("<3");
-      appendToSheet();
+      sendEmail("This test totally worked.");
+      //appendToSheet();
       //getSheetContent();
       CURRENT_STATE = END_STATE;
       break;
-    case END_STATE:
+    case END_STATE:{
+
       break;
     default:
       Serial.println("ERROR");
       break;
   }
-}
+}}
